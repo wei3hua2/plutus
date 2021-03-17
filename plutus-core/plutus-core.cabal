@@ -112,6 +112,7 @@ library
         PlutusIR.Transform.NonStrict
         PlutusIR.Transform.LetFloat
         PlutusIR.Transform.Inline
+        PlutusIR.Transform.Beta
         PlutusIR.TypeCheck
 
         UntypedPlutusCore
