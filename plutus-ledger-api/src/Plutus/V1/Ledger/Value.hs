@@ -27,6 +27,10 @@ module Plutus.V1.Ledger.Value(
     , TokenName(..)
     , tokenName
     , toString
+    -- * Currencies
+    , Currency(..)
+    , currency
+    , currencyValue
     -- ** Value
     , Value(..)
     , singleton
@@ -170,6 +174,19 @@ makeLift ''TokenName
 tokenName :: ByteString -> TokenName
 tokenName = TokenName
 
+-- | A currency, identified by currency symbol and token name.
+newtype Currency = Currency { unCurrency :: (CurrencySymbol, TokenName) }
+    deriving stock (Generic)
+    deriving newtype (Haskell.Eq, Haskell.Ord, Eq, Ord, PlutusTx.IsData, Serialise, Show)
+    deriving anyclass (Hashable, NFData, ToJSON, FromJSON)
+    deriving Pretty via (PrettyShow (CurrencySymbol, TokenName))
+
+{-# INLINABLE currency #-}
+currency :: CurrencySymbol -> TokenName -> Currency
+currency s t = Currency (s, t)
+
+makeLift ''Currency
+
 -- | A cryptocurrency value. This is a map from 'CurrencySymbol's to a
 -- quantity of that currency.
 --
@@ -284,6 +301,11 @@ symbols (Value mp) = Map.keys mp
 -- | Make a 'Value' containing only the given quantity of the given currency.
 singleton :: CurrencySymbol -> TokenName -> Integer -> Value
 singleton c tn i = Value (Map.singleton c (Map.singleton tn i))
+
+{-# INLINABLE currencyValue #-}
+-- | A 'Value' containing the given amount of the currency.
+currencyValue :: Currency -> Integer -> Value
+currencyValue (Currency (c, t)) i = singleton c t i
 
 {-# INLINABLE unionVal #-}
 -- | Combine two 'Value' maps
