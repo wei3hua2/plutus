@@ -167,7 +167,7 @@ transition State{stateData=oldData, stateValue=oldValue} input = case (oldData, 
 
 {-# INLINABLE machine #-}
 machine :: SM.StateMachine GameState GameInput
-machine = SM.mkStateMachine transition isFinal where
+machine = SM.mkStateMachine Nothing transition isFinal where
     isFinal _ = False
 
 {-# INLINABLE mkValidator #-}

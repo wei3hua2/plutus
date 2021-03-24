@@ -232,7 +232,7 @@ transition params State{ stateData =s, stateValue=currentValue} i = case (s, i) 
 
 {-# INLINABLE mkValidator #-}
 mkValidator :: Params -> Scripts.ValidatorType MultiSigSym
-mkValidator p = SM.mkValidator $ SM.mkStateMachine (transition p) (const False)
+mkValidator p = SM.mkValidator $ SM.mkStateMachine Nothing (transition p) (const False)
 
 validatorCode :: Params -> PlutusTx.CompiledCode (Scripts.ValidatorType MultiSigSym)
 validatorCode params = $$(PlutusTx.compile [|| mkValidator ||]) `PlutusTx.applyCode` PlutusTx.liftCode params
@@ -249,7 +249,7 @@ scriptInstance params = Scripts.validator @MultiSigSym
 machineInstance :: Params -> SM.StateMachineInstance MSState Input
 machineInstance params =
     SM.StateMachineInstance
-    (SM.mkStateMachine (transition params) (const False))
+    (SM.mkStateMachine Nothing (transition params) (const False))
     (scriptInstance params)
 
 client :: Params -> SM.StateMachineClient MSState Input
