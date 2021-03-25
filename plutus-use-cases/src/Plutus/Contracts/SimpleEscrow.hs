@@ -29,7 +29,7 @@ import qualified Ledger
 import           Ledger.Constraints       (TxConstraints)
 import qualified Ledger.Constraints       as Constraints
 import           Ledger.Contexts          (TxInfo (..), ValidatorCtx (..))
-import           Ledger.Interval          (after, before, from)
+import           Ledger.Interval          (after, before)
 import qualified Ledger.Interval          as Interval
 import qualified Ledger.Tx                as Tx
 import qualified Ledger.Typed.Scripts     as Scripts
@@ -153,7 +153,9 @@ lockEp params = do
 
   logInfo $ "Locking value: " <> show v <> " for " <> show pk
 
-  let tx = Constraints.mustPayToTheScript (Ledger.pubKeyHash pk) v
+  let valRange = Interval.to (pred $ deadline params)
+      tx = Constraints.mustPayToTheScript (Ledger.pubKeyHash pk) v
+            <> Constraints.mustValidateIn valRange
 
   void $ submitTxConstraints (escrowInstance params) tx
 
@@ -172,8 +174,9 @@ refund params = do
 
   logInfo $ "Running a refund for " <> show pk <> " of " <> show unspentOutputs
 
-  let tx = Typed.collectFromScript unspentOutputs Refund
-              <> Constraints.mustValidateIn (from (succ $ deadline params))
+  let valRange = Interval.from (succ $ deadline params)
+      tx = Typed.collectFromScript unspentOutputs Refund
+              <> Constraints.mustValidateIn valRange
 
   if Constraints.modifiesUtxoSet tx
   then RefundSuccess . txId <$> submitTxConstraintsSpending (escrowInstance params) unspentOutputs tx

@@ -40,27 +40,29 @@ tests = testGroup "simple-escrow"
           Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
           void $ Trace.waitNSlots 1
 
+          -- Note: The way we've set up the refund is that it only runs
+          -- validation after the deadline; so we need to wait until then to
+          -- check that it was successful.
           Trace.callEndpoint @"refund" hdl ()
-          void $ Trace.waitNSlots 1
+          void $ Trace.waitUntilSlot (succ $ deadline escrowParams)
 
 
-    -- , let c = void $ contract escrowParams in
-    --   checkPredicate "can redeem if party is paid their due"
-    --     ( assertDone c (Trace.walletInstanceTag w1) (const True) "escrow can redeem not done"
-    --     .&&. walletFundsChange w1 (Ada.lovelaceValueOf 20)
-    --     .&&. walletFundsChange w2 (Ada.lovelaceValueOf 10)
-    --     )
-    --     $ do
-    --       hdl <- Trace.activateContractWallet w1 c
+    , checkPredicate "can redeem if party is paid their due"
+        (    walletFundsChange w1 (Ada.lovelaceValueOf 20)
+        .&&. walletFundsChange w2 (Ada.lovelaceValueOf 10)
+        )
+        $ do
+          let c = void $ contract escrowParams
 
-    --       Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
-    --       void $ Trace.waitNSlots 1
+          void $ Trace.waitNSlots 10
+          hdl <- Trace.activateContractWallet w1 c
 
-    --       void $ Trace.payToWallet w2 w1 (value escrowParams)
-    --       void $ Trace.waitNSlots 1
+          Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
+          void $ Trace.payToWallet w2 w1 (value escrowParams)
+          void $ Trace.waitNSlots 10
 
-    --       Trace.callEndpoint @"redeem" hdl ()
-    --       void $ Trace.waitNSlots 1
+          Trace.callEndpoint @"redeem" hdl ()
+          void $ Trace.waitUntilSlot (succ $ deadline escrowParams)
 
 
     -- , let c = void $ contract escrowParams in
