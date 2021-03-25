@@ -30,18 +30,6 @@ tests = testGroup "simple-escrow"
           void $ Trace.waitNSlots 1
 
 
-    -- , checkPredicate "can lock and receive refund after deadline lapses"
-    --     ( walletFundsChange w1 mempty
-    --     )
-    --     $ do
-    --       let c = void $ selectEither (lockEp escrowParams) (refundEp escrowParams)
-    --       hdl <- Trace.activateContractWallet w1 c
-    --       Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
-    --       void $ Trace.waitNSlots 200
-    --       Trace.callEndpoint @"refund" hdl ()
-    --       void $ Trace.waitNSlots 200
-
-
     , checkPredicate "can lock and refund"
         ( walletFundsChange w1 mempty
         )
@@ -53,7 +41,7 @@ tests = testGroup "simple-escrow"
           void $ Trace.waitNSlots 1
 
           Trace.callEndpoint @"refund" hdl ()
-          void $ Trace.waitNSlots 5
+          void $ Trace.waitNSlots 1
 
 
     -- , let c = void $ contract escrowParams in

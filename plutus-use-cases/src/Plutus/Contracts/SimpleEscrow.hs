@@ -53,9 +53,6 @@ import qualified Prelude                  as Haskell
 --    from the payee, who will receive in turn Y value
 --
 --  i.e. Alice and Bob perform an exchange of 10 Ada for 9 Bitcoin.
---
---
---
 
 
 -------------------------------------------------
@@ -219,5 +216,6 @@ contract params
         logInfo $ "Checking value at " <> show address <> " to be at least " <> show (value params)
         fundsAtAddressGeq address (value params)
       --
-      -- TODO: Use `both`, or something, so that we get a `refund` option.
+      -- TODO: Use `both`, or something, so that we someone can call the
+      -- `refund` endpoint.
       outcome = lockEp params >> selectEither deadlineLapsed valuePaidIn
