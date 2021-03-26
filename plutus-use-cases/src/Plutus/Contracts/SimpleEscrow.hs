@@ -44,15 +44,7 @@ import           Prelude                  (Semigroup (..), foldMap)
 import qualified Prelude                  as Haskell
 
 
--- The simple escrow contract facilitiates and exchange
--- of currencies.
---
--- A contract is created with the deal:
---
---  The recipient will receive X value
---    from the payee, who will receive in turn Y value
---
---  i.e. Alice and Bob perform an exchange of 10 Ada for 9 Bitcoin.
+-- The simple escrow contract facilitiates and exchange of currencies.
 
 
 -------------------------------------------------
@@ -61,13 +53,12 @@ import qualified Prelude                  as Haskell
 
 data EscrowParams =
   EscrowParams
-    { party1   :: PubKeyHash
-    -- ^ The person who must receive the transfer.
-    , redeemer :: PubKeyHash
-    -- ^ The person who can cash in on the output of this contract.
-    , value    :: Value
-    -- ^ The value that they need to receive.
-    , deadline :: Slot
+    { payee     :: PubKeyHash
+    , paying    :: Value
+    , expecting :: Value
+    , recipient :: PubKeyHash
+    --
+    , deadline  :: Slot
     -- ^ Slot after which the contract expires.
     }
     deriving stock (Show, Generic)
@@ -76,7 +67,7 @@ PlutusTx.makeLift ''EscrowParams
 
 type EscrowSchema =
     BlockchainActions
-        .\/ Endpoint "lock"   Value
+        .\/ Endpoint "lock"   ()
         .\/ Endpoint "refund" ()
         .\/ Endpoint "redeem" ()
 
@@ -132,13 +123,21 @@ validate :: EscrowParams -> PubKeyHash -> Action -> ValidatorCtx -> Bool
 validate params contributor action ValidatorCtx{valCtxTxInfo}
   = case action of
       Redeem ->
-        let notLapsed = (deadline params) `after` txInfoValidRange valCtxTxInfo
-            paid      = valuePaidTo valCtxTxInfo (party1 params) `geq` (value params)
+        let notLapsed = deadline params `after` txInfoValidRange valCtxTxInfo
+            -- TODO: This condition always fails because this particular
+            -- transaction isn't paying anything to the Payee; it's a totally
+            -- independent one. Probably this is wrong?
+            -- paid      = valuePaidTo valCtxTxInfo (payee params) `geq` expecting params
+            paid      = True
          in traceIfFalse "paid" paid && traceIfFalse "notLapsed" notLapsed
       Refund ->
-        let lapsed = (deadline params) `before` txInfoValidRange valCtxTxInfo
+        -- TODO: This is problematic at the moment because the awaitSlot only
+        -- returns after the deadline has lapsed; so the Refund validation
+        -- would fail because it's lapsed? Need to allow a refund after the
+        -- deadline has lapsed? Or something else?
+        let lapsed = deadline params `before` txInfoValidRange valCtxTxInfo
             signed = valCtxTxInfo `txSignedBy` contributor
-        in traceIfFalse "lapsed" lapsed && traceIfFalse "signed" signed
+        in traceIfFalsed "lapsed" lapsed && traceIfFalse "signed" signed
 
 
 -------------------------------------------------
@@ -148,13 +147,14 @@ validate params contributor action ValidatorCtx{valCtxTxInfo}
 -- |
 lockEp :: EscrowParams -> Contract () EscrowSchema EscrowError ()
 lockEp params = do
-  v  <- endpoint @"lock"
+  endpoint @"lock"
+
   pk <- ownPubKey
 
-  logInfo $ "Locking value: " <> show v <> " for " <> show pk
+  logInfo $ "Locking value: " <> show (paying params) <> " for " <> show pk
 
   let valRange = Interval.to (pred $ deadline params)
-      tx = Constraints.mustPayToTheScript (Ledger.pubKeyHash pk) v
+      tx = Constraints.mustPayToTheScript (Ledger.pubKeyHash pk) (paying params)
             <> Constraints.mustValidateIn valRange
 
   t <- submitTxConstraints (escrowInstance params) tx
@@ -200,13 +200,13 @@ redeem params = do
   current <- currentSlot
   unspentOutputs <- utxoAt (escrowAddress params)
 
-  let totalValue = foldMap (Tx.txOutValue . Tx.txOutTxOut) unspentOutputs
+  let value = foldMap (Tx.txOutValue . Tx.txOutTxOut) unspentOutputs
 
-  logInfo $ "Running a redeem for " <> show (redeemer params) <> " of value " <> show totalValue
+  logInfo $ "Running a redeem for " <> show (recipient params) <> " of value " <> show value
 
   let valRange = Interval.to (pred $ deadline params)
       tx = Typed.collectFromScript unspentOutputs Redeem
-              <> Constraints.mustPayToPubKey (redeemer params) (value params)
+              <> Constraints.mustPayToPubKey (recipient params) value
               <> Constraints.mustValidateIn valRange
 
   if current >= deadline params
@@ -228,15 +228,15 @@ contract params
                         Left _  -> Left  <$> refundEp params
                         Right _ -> Right <$> redeemEp params
     where
-      address        = Ledger.PubKeyAddress $ party1 params
-      deadlineLapsed = awaitSlot (deadline params)
+      address        = Ledger.PubKeyAddress $ payee params
+      deadlineLapsed = awaitSlot (deadline params) >> (logInfo $ ("Slot waiting completed!" :: Haskell.String))
       valuePaidIn    = void $ do
-        logInfo $ "Checking value at " <> show address <> " to be at least " <> show (value params)
-        a <- fundsAtAddressGeq address (value params)
+        logInfo $ "Checking value at " <> show address <> " to be at least " <> show (expecting params)
+        a <- fundsAtAddressGeq address (expecting params)
         let s = foldMap (Tx.txOutValue . Tx.txOutTxOut) a
         logInfo $ "Found total " <> show s
         return a
       --
-      -- TODO: Use `both`, or something, so that we someone can call the
-      -- `refund` endpoint.
+      -- TODO: Use `both`, or something, so that someone can call the `refund`
+      -- endpoint at any time.
       outcome = lockEp params >> selectEither deadlineLapsed valuePaidIn
