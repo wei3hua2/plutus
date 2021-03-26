@@ -12,7 +12,7 @@ import qualified Ledger.Ada                    as Ada
 import           Plutus.Contract
 import           Plutus.Contract.Test
 
-import           Plutus.Contracts.SimpleEscrow (EscrowParams (..), contract, lockEp, refundEp)
+import           Plutus.Contracts.SimpleEscrow (EscrowParams (..), contract, lockEp, redeemEp, refundEp)
 
 import qualified Plutus.Trace.Emulator         as Trace
 
@@ -34,7 +34,7 @@ tests = testGroup "simple-escrow"
         ( walletFundsChange w1 mempty
         )
         $ do
-          let c = void (both (lockEp escrowParams) (refundEp escrowParams))
+          let c = void $ both (lockEp escrowParams) (refundEp escrowParams)
 
           hdl <- Trace.activateContractWallet w1 c
           Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
@@ -48,40 +48,39 @@ tests = testGroup "simple-escrow"
 
 
     , checkPredicate "can redeem if party is paid their due"
-        (    walletFundsChange w1 (Ada.lovelaceValueOf 20)
+        (    walletFundsChange w1 (Ada.lovelaceValueOf (-20))
         .&&. walletFundsChange w2 (Ada.lovelaceValueOf 10)
         )
         $ do
+          -- TODO: I don't know why this isn't working, at the moment.
           let c = void $ contract escrowParams
 
-          void $ Trace.waitNSlots 10
           hdl <- Trace.activateContractWallet w1 c
 
           Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
-          void $ Trace.payToWallet w2 w1 (value escrowParams)
-          void $ Trace.waitNSlots 10
+          void $ Trace.waitNSlots 1
 
+          void $ Trace.payToWallet w2 w1 (value escrowParams)
           Trace.callEndpoint @"redeem" hdl ()
+
           void $ Trace.waitUntilSlot (succ $ deadline escrowParams)
 
 
-    -- , let c = void $ contract escrowParams in
-    --   checkPredicate "cant redeem if party is not paid their due"
-    --     ( assertDone c (Trace.walletInstanceTag w1) (const True) "escrow cant redeem not done"
-    --     .&&. walletFundsChange w1 mempty
-    --     .&&. walletFundsChange w2 mempty
+    -- TODO: This has a problem; the party always has the amount they require
+    -- becaue the wallet starts with heaps of money in it.
+    --
+    -- , checkPredicate "refund if party is not paid their due by deadline"
+    --     ( walletFundsChange w1 mempty
     --     )
     --     $ do
+    --       let c = void $ contract escrowParams
     --       hdl <- Trace.activateContractWallet w1 c
 
     --       Trace.callEndpoint @"lock" hdl (Ada.lovelaceValueOf 10)
-    --       void $ Trace.waitNSlots 1
 
     --       -- Don't pay.
-    --       void $ Trace.waitNSlots 1
-
-    --       Trace.callEndpoint @"redeem" hdl ()
-    --       void $ Trace.waitNSlots 1
+    --       void $ Trace.waitUntilSlot (succ $ deadline escrowParams)
+    --       void $ Trace.waitNSlots 2
     ]
 
 

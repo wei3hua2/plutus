@@ -38,9 +38,9 @@ import           Ledger.Value             (Value, geq)
 import           Plutus.Contract
 import qualified Plutus.Contract.Typed.Tx as Typed
 import qualified PlutusTx                 as PlutusTx
-import           PlutusTx.Prelude         hiding (Applicative (..), Semigroup (..), check)
+import           PlutusTx.Prelude         hiding (Applicative (..), Semigroup (..), check, foldMap)
 
-import           Prelude                  (Semigroup (..))
+import           Prelude                  (Semigroup (..), foldMap)
 import qualified Prelude                  as Haskell
 
 
@@ -157,7 +157,9 @@ lockEp params = do
       tx = Constraints.mustPayToTheScript (Ledger.pubKeyHash pk) v
             <> Constraints.mustValidateIn valRange
 
-  void $ submitTxConstraints (escrowInstance params) tx
+  t <- submitTxConstraints (escrowInstance params) tx
+
+  logInfo $ "Submitted lock transaction " <> show t
 
 
 -- |
@@ -172,7 +174,9 @@ refund params = do
   pk <- ownPubKey
   unspentOutputs <- utxoAt (escrowAddress params)
 
-  logInfo $ "Running a refund for " <> show pk <> " of " <> show unspentOutputs
+  let totalValue = foldMap (Tx.txOutValue . Tx.txOutTxOut) unspentOutputs
+
+  logInfo $ "Running a refund for " <> show pk <> " of value " <> show totalValue
 
   let valRange = Interval.from (succ $ deadline params)
       tx = Typed.collectFromScript unspentOutputs Refund
@@ -183,6 +187,12 @@ refund params = do
   else throwing _RefundFailed ()
 
 
+
+-- |
+redeemEp :: EscrowParams -> Contract () EscrowSchema EscrowError RedeemSuccess
+redeemEp params = mapError (review _EscrowError) $ endpoint @"redeem" >> redeem params
+
+
 -- |
 redeem :: EscrowParams
        -> Contract () EscrowSchema EscrowError RedeemSuccess
@@ -190,7 +200,9 @@ redeem params = do
   current <- currentSlot
   unspentOutputs <- utxoAt (escrowAddress params)
 
-  logInfo $ "Running a redeem for " <> show (redeemer params) <> " of " <> show unspentOutputs <> " at " <> show current
+  let totalValue = foldMap (Tx.txOutValue . Tx.txOutTxOut) unspentOutputs
+
+  logInfo $ "Running a redeem for " <> show (redeemer params) <> " of value " <> show totalValue
 
   let valRange = Interval.to (pred $ deadline params)
       tx = Typed.collectFromScript unspentOutputs Redeem
@@ -199,7 +211,10 @@ redeem params = do
 
   if current >= deadline params
   then throwing _RedeemFailed DeadlinePassed
-  else RedeemSuccess . txId <$> submitTxConstraintsSpending (escrowInstance params) unspentOutputs tx
+  else RedeemSuccess . txId <$> do
+    t <- submitTxConstraintsSpending (escrowInstance params) unspentOutputs tx
+    logInfo $ "Submitted transaction " <> show t
+    return t
 
 
 -------------------------------------------------
@@ -210,14 +225,17 @@ contract :: EscrowParams
          -> Contract () EscrowSchema EscrowError (Either RefundSuccess RedeemSuccess)
 contract params
   = outcome >>= \x -> case x of
-                        Left _  -> Left  <$> refund params
-                        Right _ -> Right <$> redeem params
+                        Left _  -> Left  <$> refundEp params
+                        Right _ -> Right <$> redeemEp params
     where
       address        = Ledger.PubKeyAddress $ party1 params
       deadlineLapsed = awaitSlot (deadline params)
       valuePaidIn    = void $ do
         logInfo $ "Checking value at " <> show address <> " to be at least " <> show (value params)
-        fundsAtAddressGeq address (value params)
+        a <- fundsAtAddressGeq address (value params)
+        let s = foldMap (Tx.txOutValue . Tx.txOutTxOut) a
+        logInfo $ "Found total " <> show s
+        return a
       --
       -- TODO: Use `both`, or something, so that we someone can call the
       -- `refund` endpoint.
