@@ -71,7 +71,8 @@ import qualified Ledger.Typed.Tx                      as Typed
 import           Ledger.Value                         (AssetClass)
 import qualified Ledger.Value                         as Value
 import           Plutus.Contract
-import           Plutus.Contract.StateMachine.OnChain (State (..), StateMachine (..), StateMachineInstance (..))
+import           Plutus.Contract.StateMachine.OnChain (State (..), StateMachine (..), StateMachineInstance (..),
+                                                       WithAssetClass (..))
 import qualified Plutus.Contract.StateMachine.OnChain as SM
 import qualified PlutusTx                             as PlutusTx
 
@@ -99,10 +100,10 @@ getStates
     => SM.StateMachineInstance s i
     -> Map TxOutRef TxOutTx
     -> [OnChainState s i]
-getStates (SM.StateMachineInstance _ si) refMap =
+getStates SM.StateMachineInstance{SM.validatorInstance} refMap =
     let lkp (ref, out) = do
-            tref <- Typed.typeScriptTxOutRef (\r -> Map.lookup r refMap) si ref
-            tout <- Typed.typeScriptTxOut si out
+            tref <- Typed.typeScriptTxOutRef (\r -> Map.lookup r refMap) validatorInstance ref
+            tout <- Typed.typeScriptTxOut validatorInstance out
             pure (tout, tref)
     in rights $ fmap lkp $ Map.toList refMap
 
@@ -171,8 +172,8 @@ mkStateMachineClient ::
     forall state input
     . SM.StateMachineInstance state input
     -> StateMachineClient state input
-mkStateMachineClient inst =
-    let scChooser = maybe defaultChooser threadTokenChooser $ SM.smThreadToken $ SM.stateMachine inst in
+mkStateMachineClient inst@SM.StateMachineInstance{SM.threadToken} =
+    let scChooser = maybe defaultChooser threadTokenChooser threadToken in
     StateMachineClient
         { scInstance = inst
         , scChooser
@@ -241,7 +242,7 @@ waitForUpdateUntil StateMachineClient{scInstance, scChooser} timeoutSlot = do
         [] | slot >= timeoutSlot -> pure $ Timeout timeoutSlot
         xs -> case scChooser xs of
                 Left err         -> throwing _SMContractError err
-                Right (state, _) -> pure $ WaitingResult (tyTxOutData state)
+                Right (state, _) -> pure $ WaitingResult (SM.s $ tyTxOutData state)
 
 
 -- | Wait until the on-chain state of the state machine instance has changed,
@@ -337,8 +338,9 @@ runInitialise ::
     -- ^ The value locked by the contract at the beginning
     -> Contract w schema e state
 runInitialise StateMachineClient{scInstance} initialState initialValue = mapError (review _SMContractError) $ do
-    let StateMachineInstance{validatorInstance, stateMachine} = scInstance
-        tx = mustPayToTheScript initialState (initialValue <> SM.threadTokenValue stateMachine)
+    let StateMachineInstance{validatorInstance, threadToken} = scInstance
+        initialStateWithToken = WithAssetClass{assetClass = threadToken, s = initialState}
+        tx = mustPayToTheScript initialStateWithToken (initialValue <> SM.threadTokenValue threadToken)
     let lookups = Constraints.scriptInstanceLookups validatorInstance
     utx <- either (throwing _ConstraintResolutionError) pure (Constraints.mkTx lookups tx)
     submitTxConfirmed utx
@@ -372,7 +374,7 @@ mkStep client@StateMachineClient{scInstance} input = do
     case maybeState of
         Nothing -> pure $ Left $ InvalidTransition Nothing input
         Just (onChainState, utxo) -> do
-            let (TypedScriptTxOut{tyTxOutData=currentState, tyTxOutTxOut}, txOutRef) = onChainState
+            let (TypedScriptTxOut{tyTxOutData=WithAssetClass{assetClass, s = currentState}, tyTxOutTxOut}, txOutRef) = onChainState
                 oldState = State{stateData = currentState, stateValue = Ledger.txOutValue tyTxOutTxOut}
                 inputConstraints = [InputConstraint{icRedeemer=input, icTxOutRef = Typed.tyTxOutRefRef txOutRef }]
 
@@ -384,7 +386,7 @@ mkStep client@StateMachineClient{scInstance} input = do
                         outputConstraints =
                             if smFinal (SM.stateMachine scInstance) (stateData newState)
                                 then []
-                                else [OutputConstraint{ocDatum = stateData newState, ocValue = stateValue newState <> SM.threadTokenValue stateMachine }]
+                                else [OutputConstraint{ocDatum = WithAssetClass{assetClass, s = stateData newState}, ocValue = stateValue newState <> SM.threadTokenValue assetClass }]
                     in pure
                         $ Right
                         $ StateMachineTransition

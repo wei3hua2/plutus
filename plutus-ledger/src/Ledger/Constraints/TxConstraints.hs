@@ -116,6 +116,8 @@ instance (Pretty a) => Pretty (OutputConstraint a) where
 deriving anyclass instance (ToJSON a) => ToJSON (OutputConstraint a)
 deriving anyclass instance (FromJSON a) => FromJSON (OutputConstraint a)
 deriving stock instance (Haskell.Eq a) => Haskell.Eq (OutputConstraint a)
+instance Functor OutputConstraint where
+    fmap f o = o { ocDatum = f (ocDatum o)}
 
 -- | Restrictions placed on the allocation of funds to outputs of transactions.
 data TxConstraints i o =
@@ -126,12 +128,15 @@ data TxConstraints i o =
         }
     deriving stock (Show, Generic)
 
-instance Bifunctor TxConstraints where
+instance Bifunctor TxConstraints where -- Haskell.Bifunctor instance
     bimap f g txc =
         txc
             { txOwnInputs = Haskell.fmap (Haskell.fmap f) (txOwnInputs txc)
             , txOwnOutputs = Haskell.fmap (Haskell.fmap g) (txOwnOutputs txc)
             }
+
+instance Functor (TxConstraints i) where -- PlutusTx.Functor instance
+    fmap f o = o { txOwnOutputs = fmap (fmap f) (txOwnOutputs o) }
 
 type UntypedConstraints = TxConstraints PlutusTx.Data PlutusTx.Data
 
