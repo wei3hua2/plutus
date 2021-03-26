@@ -137,7 +137,7 @@ validate params contributor action ValidatorCtx{valCtxTxInfo}
         -- deadline has lapsed? Or something else?
         let lapsed = deadline params `before` txInfoValidRange valCtxTxInfo
             signed = valCtxTxInfo `txSignedBy` contributor
-        in traceIfFalsed "lapsed" lapsed && traceIfFalse "signed" signed
+        in traceIfFalse "lapsed" lapsed && traceIfFalse "signed" signed
 
 
 -------------------------------------------------
