@@ -105,7 +105,7 @@ library
         PlutusIR.Parser
         PlutusIR.MkPir
         PlutusIR.Purity
-        PlutusIR.Optimizer.DeadCode
+        PlutusIR.Transform.DeadCode
         PlutusIR.Transform.Substitute
         PlutusIR.Transform.ThunkRecursions
         PlutusIR.Transform.Rename

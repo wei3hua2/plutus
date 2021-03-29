@@ -29,7 +29,7 @@ import           PlutusIR.Compiler.Lower
 import           PlutusIR.Compiler.Provenance
 import           PlutusIR.Compiler.Types
 import           PlutusIR.Error
-import qualified PlutusIR.Optimizer.DeadCode        as DeadCode
+import qualified PlutusIR.Transform.DeadCode        as DeadCode
 import qualified PlutusIR.Transform.Inline          as Inline
 import qualified PlutusIR.Transform.LetFloat        as LetFloat
 import qualified PlutusIR.Transform.NonStrict       as NonStrict
