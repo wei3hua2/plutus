@@ -12,6 +12,7 @@ In particular, we want to get rid of "trivial" let bindings which the Plutus Tx 
 -}
 module PlutusIR.Transform.Inline where
 
+import           PlutusPrelude
 import           PlutusIR
 import qualified PlutusIR.Analysis.Dependencies as Deps
 import           PlutusIR.MkPir
@@ -26,7 +27,7 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 
 import qualified Algebra.Graph                  as G
-import           Data.Foldable
+-- import           Data.Foldable
 import qualified Data.Map                       as Map
 import           Witherable
 
@@ -166,6 +167,12 @@ processTerm = \case
         -- have got rid of all of them!
         pure $ mkLet a NonRec bs' t'
     -- This includes recursive let terms, we don't even consider inlining them at the moment
+    Apply a (LamAbs _ name typ body) arg ->
+      let varDecl = VarDecl a name typ
+          binding = TermBind a Strict varDecl arg
+          bindings = binding :| []
+      in
+          processTerm $ Let a NonRec bindings body
     t -> forMOf termSubterms t processTerm
 
 {- Note [Inlining various kinds of binding]
