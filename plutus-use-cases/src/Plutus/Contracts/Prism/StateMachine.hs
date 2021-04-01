@@ -25,7 +25,7 @@ import           Ledger.Crypto                     (PubKeyHash)
 import qualified Ledger.Typed.Scripts              as Scripts
 import           Ledger.Value                      (TokenName, Value)
 import           Plutus.Contract.StateMachine      (State (..), StateMachine (..), StateMachineClient (..),
-                                                    StateMachineInstance (..), Void)
+                                                    StateMachineInstance (..), Void, WithAssetClass (..))
 import qualified Plutus.Contract.StateMachine      as StateMachine
 import           Plutus.Contracts.Prism.Credential (Credential (..), CredentialAuthority (..))
 import qualified Plutus.Contracts.Prism.Credential as Credential
@@ -80,7 +80,7 @@ transition UserCredential{ucAddress, ucCredential, ucToken} State{stateData=stat
 credentialStateMachine ::
   UserCredential
   -> StateMachine IDState IDAction
-credentialStateMachine cd = StateMachine.mkStateMachine Nothing (transition cd) isFinal where
+credentialStateMachine cd = StateMachine.mkStateMachine (transition cd) isFinal where
   isFinal Revoked = True
   isFinal _       = False
 
@@ -90,7 +90,7 @@ scriptInstance ::
 scriptInstance credentialData =
     let val = $$(PlutusTx.compile [|| validator ||]) `PlutusTx.applyCode` PlutusTx.liftCode credentialData
         validator d = StateMachine.mkValidator (credentialStateMachine d)
-        wrap = Scripts.wrapValidator @IDState @IDAction
+        wrap = Scripts.wrapValidator @(WithAssetClass IDState) @IDAction
     in Scripts.validator @(StateMachine IDState IDAction) val $$(PlutusTx.compile [|| wrap ||])
 
 machineClient ::
@@ -98,8 +98,13 @@ machineClient ::
     -> UserCredential
     -> StateMachineClient IDState IDAction
 machineClient inst credentialData =
-    let machine = credentialStateMachine credentialData
-    in StateMachine.mkStateMachineClient (StateMachineInstance machine inst)
+    let machineInstance =
+            StateMachineInstance
+                { stateMachine = credentialStateMachine credentialData
+                , validatorInstance = inst
+                , threadToken = Nothing
+                }
+    in StateMachine.mkStateMachineClient machineInstance
 
 mkMachineClient :: CredentialAuthority -> PubKeyHash -> TokenName -> StateMachineClient IDState IDAction
 mkMachineClient authority credentialOwner tokenName =

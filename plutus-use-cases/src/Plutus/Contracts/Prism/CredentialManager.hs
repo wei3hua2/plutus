@@ -23,7 +23,7 @@ import           Ledger.Constraints                  (ScriptLookups, TxConstrain
 import           Plutus.Contract
 import           Plutus.Contract.Effects.RPC
 import           Plutus.Contract.StateMachine        (InvalidTransition, SMContractError, StateMachine,
-                                                      StateMachineTransition (..), mkStep)
+                                                      StateMachineTransition (..), WithAssetClass (..), mkStep)
 import           Plutus.Contracts.Prism.StateMachine (IDAction (PresentCredential), IDState, UserCredential (..))
 import qualified Plutus.Contracts.Prism.StateMachine as StateMachine
 import           PlutusTx.Prelude
@@ -82,4 +82,4 @@ presentToken userCredential = do
     case t of
         Left e -> throwError (TransitionError e)
         Right StateMachineTransition{smtConstraints=cons, smtLookups=lookups} ->
-            pure (cons, lookups)
+            pure (fmap s cons, lookups)

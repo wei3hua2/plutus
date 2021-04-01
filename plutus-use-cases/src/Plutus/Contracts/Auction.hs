@@ -39,7 +39,8 @@ import           Ledger.Typed.Tx                  (TypedScriptTxOut (..))
 import           Ledger.Value                     (AssetClass)
 import           Plutus.Contract
 import           Plutus.Contract.StateMachine     (State (..), StateMachine (..), StateMachineClient,
-                                                   StateMachineInstance (..), Void, WaitingResult (..))
+                                                   StateMachineInstance (..), Void, WaitingResult (..),
+                                                   WithAssetClass (..))
 import qualified Plutus.Contract.StateMachine     as SM
 import           Plutus.Contract.Util             (loopM)
 import qualified Plutus.Contracts.Currency        as Currency
@@ -144,23 +145,21 @@ auctionTransition AuctionParams{apOwner, apAsset, apEndTime} State{stateData=old
 
 
 {-# INLINABLE auctionStateMachine #-}
-auctionStateMachine :: AssetClass -> AuctionParams -> StateMachine AuctionState AuctionInput
-auctionStateMachine threadToken auctionParams = SM.mkStateMachine (Just threadToken) (auctionTransition auctionParams) isFinal where
+auctionStateMachine :: AuctionParams -> StateMachine AuctionState AuctionInput
+auctionStateMachine auctionParams = SM.mkStateMachine (auctionTransition auctionParams) isFinal where
     isFinal Finished{} = True
     isFinal _          = False
 
 
 -- | The script instance of the auction state machine. It contains the state
 --   machine compiled to a Plutus core validator script.
-scriptInstance :: AssetClass -> AuctionParams -> Scripts.ScriptInstance (StateMachine AuctionState AuctionInput)
-scriptInstance currency auctionParams =
+scriptInstance :: AuctionParams -> Scripts.ScriptInstance (StateMachine AuctionState AuctionInput)
+scriptInstance auctionParams =
     let val = $$(PlutusTx.compile [|| validatorParam ||])
             `PlutusTx.applyCode`
-                PlutusTx.liftCode currency
-                `PlutusTx.applyCode`
                     PlutusTx.liftCode auctionParams
-        validatorParam c f = SM.mkValidator (auctionStateMachine c f)
-        wrap = Scripts.wrapValidator @AuctionState @AuctionInput
+        validatorParam f = SM.mkValidator (auctionStateMachine f)
+        wrap = Scripts.wrapValidator @(WithAssetClass AuctionState) @AuctionInput
 
     in Scripts.validator @(StateMachine AuctionState AuctionInput)
         val
@@ -175,8 +174,13 @@ machineClient
     -> AuctionParams
     -> StateMachineClient AuctionState AuctionInput
 machineClient inst threadToken auctionParams =
-    let machine = auctionStateMachine threadToken auctionParams
-    in SM.mkStateMachineClient (StateMachineInstance machine inst)
+    let machineInstance =
+            StateMachineInstance
+                { stateMachine = auctionStateMachine auctionParams
+                , validatorInstance = inst
+                , threadToken = Just threadToken
+                }
+    in SM.mkStateMachineClient machineInstance
 
 type BuyerSchema = BlockchainActions .\/ Endpoint "bid" Ada
 type SellerSchema = BlockchainActions -- Don't need any endpoints: the contract runs automatically until the auction is finished.
@@ -214,7 +218,7 @@ auctionSeller value slot = do
     tell $ threadTokenOut threadToken
     self <- Ledger.pubKeyHash <$> ownPubKey
     let params       = AuctionParams{apOwner = self, apAsset = value, apEndTime = slot }
-        inst         = scriptInstance threadToken params
+        inst         = scriptInstance params
         client       = machineClient inst threadToken params
 
     _ <- handleError
@@ -234,9 +238,9 @@ auctionSeller value slot = do
 -- | Get the current state of the contract and log it.
 currentState :: StateMachineClient AuctionState AuctionInput -> Contract AuctionOutput BuyerSchema AuctionError (Maybe HighestBid)
 currentState client = mapError StateMachineContractError (SM.getOnChainState client) >>= \case
-    Just ((TypedScriptTxOut{tyTxOutData=Ongoing s}, _), _) -> do
-        tell $ auctionStateOut $ Ongoing s
-        pure (Just s)
+    Just ((TypedScriptTxOut{tyTxOutData=WithAssetClass{s = Ongoing s'}}, _), _) -> do
+        tell $ auctionStateOut $ Ongoing s'
+        pure (Just s')
     _ -> do
         logWarn CurrentStateNotFound
         pure Nothing
@@ -307,7 +311,7 @@ handleEvent client lastHighestBid change =
 
 auctionBuyer :: AssetClass -> AuctionParams -> Contract AuctionOutput BuyerSchema AuctionError ()
 auctionBuyer currency params = do
-    let inst         = scriptInstance currency params
+    let inst         = scriptInstance params
         client       = machineClient inst currency params
 
         -- the actual loop, see note [Buyer client]

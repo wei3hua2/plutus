@@ -167,7 +167,7 @@ transition State{stateData=oldData, stateValue=oldValue} input = case (oldData, 
 
 {-# INLINABLE machine #-}
 machine :: SM.StateMachine GameState GameInput
-machine = SM.mkStateMachine Nothing transition isFinal where
+machine = SM.mkStateMachine transition isFinal where
     isFinal _ = False
 
 {-# INLINABLE mkValidator #-}
@@ -179,7 +179,7 @@ scriptInstance = Scripts.validator @(SM.StateMachine GameState GameInput)
     $$(PlutusTx.compile [|| mkValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
     where
-        wrap = Scripts.wrapValidator @GameState @GameInput
+        wrap = Scripts.wrapValidator @(SM.WithAssetClass GameState) @GameInput
 
 monetaryPolicy :: Scripts.MonetaryPolicy
 monetaryPolicy = Scripts.monetaryPolicy scriptInstance
@@ -188,7 +188,12 @@ monetaryPolicy = Scripts.monetaryPolicy scriptInstance
 --   the functions in 'PlutusTx.StateMachine' to generate a validator
 --   script based on the functions 'step' and 'check' we defined above.
 machineInstance :: SM.StateMachineInstance GameState GameInput
-machineInstance = SM.StateMachineInstance machine scriptInstance
+machineInstance =
+    SM.StateMachineInstance
+        { SM.stateMachine = machine
+        , SM.validatorInstance = scriptInstance
+        , SM.threadToken = Nothing
+        }
 
 client :: SM.StateMachineClient GameState GameInput
 client = SM.mkStateMachineClient machineInstance

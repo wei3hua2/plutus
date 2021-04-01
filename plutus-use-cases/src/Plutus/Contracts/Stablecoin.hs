@@ -97,7 +97,7 @@ import           Ledger.Value                    (AssetClass, TokenName, Value)
 import qualified Ledger.Value                    as Value
 import           Plutus.Contract
 import           Plutus.Contract.StateMachine    (SMContractError, State (..), StateMachine, StateMachineClient (..),
-                                                  StateMachineInstance (..), Void)
+                                                  StateMachineInstance (..), Void, WithAssetClass (..))
 import qualified Plutus.Contract.StateMachine    as StateMachine
 import qualified PlutusTx                        as PlutusTx
 import           PlutusTx.Prelude
@@ -359,7 +359,7 @@ data InvalidStateReason
     deriving (Show)
 
 stablecoinStateMachine :: Stablecoin -> StateMachine BankState Input
-stablecoinStateMachine sc = StateMachine.mkStateMachine Nothing (transition sc) isFinal
+stablecoinStateMachine sc = StateMachine.mkStateMachine (transition sc) isFinal
     -- the state machine never stops (OK for the prototype but we probably need
     -- to add a final state to the real thing)
     where isFinal _ = False
@@ -368,7 +368,7 @@ scriptInstance :: Stablecoin -> Scripts.ScriptInstance (StateMachine BankState I
 scriptInstance stablecoin =
     let val = $$(PlutusTx.compile [|| validator ||]) `PlutusTx.applyCode` PlutusTx.liftCode stablecoin
         validator d = StateMachine.mkValidator (stablecoinStateMachine d)
-        wrap = Scripts.wrapValidator @BankState @Input
+        wrap = Scripts.wrapValidator @(WithAssetClass BankState) @Input
     in Scripts.validator @(StateMachine BankState Input) val $$(PlutusTx.compile [|| wrap ||])
 
 machineClient ::
@@ -377,7 +377,13 @@ machineClient ::
     -> StateMachineClient BankState Input
 machineClient inst stablecoin =
     let machine = stablecoinStateMachine stablecoin
-    in StateMachine.mkStateMachineClient (StateMachineInstance machine inst)
+        machineInstance =
+            StateMachineInstance
+                { stateMachine = machine
+                , validatorInstance = inst
+                , threadToken = Nothing
+                }
+    in StateMachine.mkStateMachineClient machineInstance
 
 type StablecoinSchema =
     BlockchainActions
@@ -411,11 +417,11 @@ checkTransition theClient sc i@Input{inpConversionRate} = do
         case checkHashOffChain inpConversionRate of
             Right Observation{obsValue} -> do
                 case currentState of
-                    Just ((TypedScriptTxOut{tyTxOutData}, _), _) -> do
-                        case checkValidState sc tyTxOutData obsValue of
+                    Just ((TypedScriptTxOut{tyTxOutData=WithAssetClass{s}}, _), _) -> do
+                        case checkValidState sc s obsValue of
                             Right _ -> logInfo @String "Current state OK"
                             Left w  -> logInfo $ "Current state is invalid: " <> show w <> ". The transition may still be allowed."
-                        case applyInput sc tyTxOutData i of
+                        case applyInput sc s i of
                             Just (_, newState) -> case checkValidState sc newState obsValue of
                                 Right _ -> logInfo @String "New state OK"
                                 Left w  -> logWarn $ "New state is invalid: " <> show w <> ". The transition is not allowed."

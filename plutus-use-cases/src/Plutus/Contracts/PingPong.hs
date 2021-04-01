@@ -90,7 +90,7 @@ transition State{stateData=oldData,stateValue} input = case (oldData, input) of
 
 {-# INLINABLE machine #-}
 machine :: SM.StateMachine PingPongState Input
-machine = SM.mkStateMachine Nothing transition isFinal where
+machine = SM.mkStateMachine transition isFinal where
     isFinal Stopped = True
     isFinal _       = False
 
@@ -103,10 +103,15 @@ scriptInstance = Scripts.validator @(SM.StateMachine PingPongState Input)
     $$(PlutusTx.compile [|| mkValidator ||])
     $$(PlutusTx.compile [|| wrap ||])
     where
-        wrap = Scripts.wrapValidator @PingPongState @Input
+        wrap = Scripts.wrapValidator @(SM.WithAssetClass PingPongState) @Input
 
 machineInstance :: SM.StateMachineInstance PingPongState Input
-machineInstance = SM.StateMachineInstance machine scriptInstance
+machineInstance =
+    SM.StateMachineInstance
+        { SM.stateMachine = machine
+        , SM.validatorInstance = scriptInstance
+        , SM.threadToken = Nothing
+        }
 
 client :: SM.StateMachineClient PingPongState Input
 client = SM.mkStateMachineClient machineInstance
@@ -119,7 +124,7 @@ run ::
     -> Contract () PingPongSchema PingPongError ()
     -> Contract () PingPongSchema PingPongError ()
 run expectedState action = do
-    let extractState = tyTxOutData . fst
+    let extractState = SM.s . tyTxOutData . fst
         go Nothing = throwError StoppedUnexpectedly
         go (Just currentState)
             | extractState currentState == expectedState = action

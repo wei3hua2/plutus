@@ -20,6 +20,7 @@ module Plutus.Contract.StateMachine(
     , SM.StateMachine(..)
     , SM.StateMachineInstance(..)
     , SM.State(..)
+    , SM.WithAssetClass(..)
     , OnChainState
     , WaitingResult(..)
     , InvalidTransition(..)
