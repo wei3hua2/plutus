@@ -76,6 +76,7 @@
           ] ++ (pkgs.lib).optionals (!(compiler.isGhcjs && true || system.isGhcjs)) [
           (hsPkgs."tasty" or (errorHandler.buildDepError "tasty"))
           (hsPkgs."tasty-hunit" or (errorHandler.buildDepError "tasty-hunit"))
+          (hsPkgs."tasty-golden" or (errorHandler.buildDepError "tasty-golden"))
           ];
         buildable = true;
         modules = [
