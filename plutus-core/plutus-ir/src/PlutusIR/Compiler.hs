@@ -38,14 +38,20 @@ import qualified PlutusIR.Transform.ThunkRecursions as ThunkRec
 import           PlutusIR.TypeCheck.Internal
 
 import qualified PlutusCore                         as PLC
+import qualified PlutusCore.Constant.Meaning        as M
 
 import           Control.Monad
 import           Control.Monad.Reader
 import           PlutusPrelude
 
+-- | Actual simplifier
+simplify :: M.ToBuiltinMeaning uni fun => Term TyName Name uni fun b -> Term TyName Name uni fun b
+simplify = Inline.inline . DeadCode.removeDeadBindings
+-- simplify x = x
+
 -- | Perform some simplification of a 'Term'.
 simplifyTerm :: Compiling m e uni fun a => Term TyName Name uni fun b -> m (Term TyName Name uni fun b)
-simplifyTerm = runIfOpts $ pure . Inline.inline . DeadCode.removeDeadBindings
+simplifyTerm = runIfOpts $ pure . simplify
 
 -- | Perform floating/merging of lets in a 'Term' to their nearest lambda/Lambda/letStrictNonValue.
 -- Note: It assumes globally unique names

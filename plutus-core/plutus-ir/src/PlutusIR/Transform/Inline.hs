@@ -166,13 +166,13 @@ processTerm = \case
         -- Use 'mkLet': we're using lists of bindings rather than NonEmpty since we might actually
         -- have got rid of all of them!
         pure $ mkLet a NonRec bs' t'
+    -- Apply a (LamAbs _ name typ body) arg ->
+    --   let varDecl = VarDecl a name typ
+    --       binding = TermBind a Strict varDecl arg
+    --       bindings = binding :| []
+    --   in
+    --       processTerm $ Let a NonRec bindings body
     -- This includes recursive let terms, we don't even consider inlining them at the moment
-    Apply a (LamAbs _ name typ body) arg ->
-      let varDecl = VarDecl a name typ
-          binding = TermBind a Strict varDecl arg
-          bindings = binding :| []
-      in
-          processTerm $ Let a NonRec bindings body
     t -> forMOf termSubterms t processTerm
 
 {- Note [Inlining various kinds of binding]
